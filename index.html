@@ -551,11 +551,16 @@ async function pushData() {
   scheduleData.meta = meta;
   setConnStatus('syncing');
   try {
-    const payload = JSON.stringify(scheduleData);
-    const url = scriptUrl + '?data=' + encodeURIComponent(payload);
-    await fetch(url, { method:'GET', redirect:'follow' });
-    document.getElementById('last-txt').textContent = `Últ. cambio: ${meta.por} · ${meta.fecha}`;
-    setConnStatus('ok');
+    const payload = encodeURIComponent(JSON.stringify(scheduleData));
+    const url = scriptUrl + '?data=' + payload;
+    const r = await fetch(url, { method:'GET', redirect:'follow' });
+    const resp = await r.json();
+    if (resp.status === 'ok') {
+      document.getElementById('last-txt').textContent = `Últ. cambio: ${meta.por} · ${meta.fecha}`;
+      setConnStatus('ok');
+    } else {
+      throw new Error(resp.error || 'Error desconocido');
+    }
   } catch(e) {
     setConnStatus('error');
     toast('Error al guardar. Verifica tu conexión.','warn');
