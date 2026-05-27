@@ -326,6 +326,7 @@ let scriptUrl = '', sucursal = '', view = 's';
 let currentWeekStart = getWeekStart(new Date());
 let selectedDate     = new Date();
 let syncTimer = null, resetStep = 0, resetTimer = null;
+let hasSynced = false;
 
 // ── HELPERS DE FECHA ──────────────────────────────────────────────
 function dateKey(d) {
@@ -546,14 +547,24 @@ function nowStr() {
   return `${n.getDate()}/${n.getMonth()+1}/${n.getFullYear()} ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
 }
 async function pushData() {
+  // Nunca guardar si aún no se ha leído exitosamente desde Sheets
+  // Esto evita sobreescribir datos al abrir la app con sync fallido
+  if (!hasSynced) {
+    toast('Esperando conexión con Sheets para guardar...','warn');
+    await syncData();
+    if (!hasSynced) return;
+  }
   cleanOldData();
   const meta = { por: sucursal||'Anónimo', fecha: nowStr(), suc: sucursal||'—' };
   scheduleData.meta = meta;
   setConnStatus('syncing');
   try {
-    const payload = encodeURIComponent(JSON.stringify(scheduleData));
-    const url = scriptUrl + '?data=' + payload;
-    const r = await fetch(url, { method:'GET', redirect:'follow' });
+    const r = await fetch(scriptUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(scheduleData)
+    });
     const resp = await r.json();
     if (resp.status === 'ok') {
       document.getElementById('last-txt').textContent = `Últ. cambio: ${meta.por} · ${meta.fecha}`;
@@ -568,10 +579,10 @@ async function pushData() {
 }
 
 // ── SYNC DESDE SHEETS ─────────────────────────────────────────────
-async function syncData() {
+async function syncData(isRetry = false) {
   const btn = document.getElementById('sync-btn');
   const lbl = document.getElementById('sync-lbl');
-  lbl.textContent = 'Sincronizando…'; btn.style.opacity='.6';
+  if (btn) { lbl.textContent = 'Sincronizando…'; btn.style.opacity='.6'; }
   try {
     const r    = await fetch(scriptUrl+'?t='+Date.now(), {redirect:'follow'});
     const data = await r.json();
@@ -581,14 +592,19 @@ async function syncData() {
       scheduleData.meta = data.meta;
       if (data.meta.por!=='—') document.getElementById('last-txt').textContent = `Últ. cambio: ${data.meta.por} · ${data.meta.fecha}`;
     }
+    hasSynced = true; // Marcar que ya tenemos datos reales de Sheets
     renderS(); renderD();
     setConnStatus('ok');
     document.getElementById('banner').classList.remove('show');
   } catch(e) {
     setConnStatus('error');
     document.getElementById('banner').classList.add('show');
+    // Reintentar hasta 3 veces en el arranque con pausa de 3 segundos
+    if (!hasSynced && !isRetry) {
+      setTimeout(() => syncData(true), 3000);
+    }
   }
-  lbl.textContent='Sincronizar'; btn.style.opacity='';
+  if (btn) { lbl.textContent='Sincronizar'; btn.style.opacity=''; }
 }
 
 // ── ESTADO CONEXIÓN ───────────────────────────────────────────────
